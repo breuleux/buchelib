@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from serieux import Serieux
@@ -30,3 +31,14 @@ def main_cell():
         )
         __main_cell.body().exec(here / "lib.js")
     return __main_cell
+
+
+def is_available():
+    fd_str = os.environ.get("BUCHE_CONTROL_FD")
+    if not fd_str:
+        return False
+    try:
+        os.fstat(int(fd_str))
+        return True
+    except ValueError, OSError:
+        return False

@@ -1,5 +1,3 @@
-
-
 class Interpreter:
     async def eval(self, cell, command):
         raise NotImplementedError()
