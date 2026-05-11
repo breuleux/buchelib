@@ -1,4 +1,8 @@
 async function indicate(f, args, eventTarget, selector, indicatorClass = "buche-indicator") {
+    if (!selector) {
+        selector = eventTarget.getAttribute("indicator-selector") || null;
+    }
+
     let targets;
     if (!selector) {
         targets = [eventTarget];
@@ -33,6 +37,10 @@ function embed(function_id) {
         });
     }
 }
+
+Event.prototype.indicate = function(fn, ...args) {
+    return indicate(fn, args, this.currentTarget || this.target);
+};
 
 window.indicate = indicate;
 window.embed = embed;

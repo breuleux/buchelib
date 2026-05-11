@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import select
 from dataclasses import dataclass, field
 from glob import glob
 from itertools import count
@@ -43,11 +44,18 @@ class Bridge:
         if fd is None:
             fd = int(os.environ.get("BUCHE_CONTROL_FD", 5))
         self.ctlin = os.fdopen(fd, "r", buffering=1)
-        self.ctlout = os.fdopen(os.dup(fd), "w", buffering=1)
+        self._outfd = os.dup(fd)
         self.catalogue = {}
 
     def send(self, payload):
-        self.ctlout.write(json.dumps(payload) + "\n")
+        data = (json.dumps(payload) + "\n").encode()
+        written = 0
+        while written < len(data):
+            select.select([], [self._outfd], [])
+            try:
+                written += os.write(self._outfd, data[written:])
+            except BlockingIOError:
+                pass
 
     def _pack_file(self, nonce, rel, p):
         match p.suffix:

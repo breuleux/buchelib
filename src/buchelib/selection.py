@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from pathlib import Path
 from string.templatelib import Template
 
 from hypetext import html
+from ovld import ovld, recurse
 
 from .bridge import Cell
 
@@ -15,10 +17,17 @@ class Selection:
         sel = f"{self.selector} {selector}" if self.selector else selector
         return type(self)(cell=self.cell, selector=sel)
 
-    def exec(self, code):
-        if isinstance(code, Template):
-            code = "".join(self.cell.interpreter.string_parts(code, "", "script"))
+    @ovld
+    def exec(self, code: Path):
+        recurse(code.read_text())
 
+    @ovld
+    def exec(self, code: Template):
+        scode = "".join(self.cell.interpreter.string_parts(code, "", "script"))
+        recurse(scode)
+
+    @ovld
+    def exec(self, code: str):
         self.cell.command(type="exec", code=code, selector=self.selector)
 
     def print(self, tpl):

@@ -48,7 +48,6 @@ class Call:
 
 
 class BucheSerieux(Medley):
-
     ######################
     # Custom serializers #
     ######################
