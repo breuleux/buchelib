@@ -14,21 +14,21 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "hypetext", specifier = ">=0.0.3" },
+    { name = "hypetext", specifier = ">=0.0.4" },
     { name = "ovld", specifier = ">=0.5.17" },
     { name = "serieux", specifier = ">=0.3.13" },
 ]
 
 [[package]]
 name = "hypetext"
-version = "0.0.3"
+version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ovld" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/77/22/258d20b495da29a7b0d8eb971af387dd7a497bca7cadc39744e76539ba9b/hypetext-0.0.3.tar.gz", hash = "sha256:31e84577948da0e383ece72a755c0b5b2e2b9a4aaf668ab4e8864a82730b6d93", size = 14176, upload-time = "2026-05-14T21:31:33.127Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/fd/d3563e93f4fc8b516a92b1964e5b5bc3da3bafdf4b91c8d0809e58ea5d49/hypetext-0.0.4.tar.gz", hash = "sha256:ab407e2d4bb6b3b1f1244dacdecfc981c5242ecc4566794f1969160e92293a76", size = 14333, upload-time = "2026-05-16T18:55:18.72Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5f/a2/cb57509b8d80b1da8fa7dc51d772699576459e839a2c8529d633d2adbc03/hypetext-0.0.3-py3-none-any.whl", hash = "sha256:4a1986168ecb9706025ee2481ee9773d0dc75f4656e3289ad9ac0b452960f1aa", size = 4662, upload-time = "2026-05-14T21:31:31.703Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/d5/471b5aa04bb860d8c4cb4a1f8848228c8f47859fb1f61069f5cdacdc9022/hypetext-0.0.4-py3-none-any.whl", hash = "sha256:d837aab5e6291ba16fab14d215d940857e4e74211ef76909a9941bb87e7a5cf2", size = 4780, upload-time = "2026-05-16T18:55:17.086Z" },
 ]
 
 [[package]]
