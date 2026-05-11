@@ -48,6 +48,18 @@ class Call:
 
 
 class BucheSerieux(Medley):
+
+    ######################
+    # Custom serializers #
+    ######################
+
+    def serialize(self, t: type[FunctionType], obj: FunctionType, ctx: CellContext):
+        return t"embed({ctx.cell.register_function(obj)})"
+
+    ########################
+    # Custom deserializers #
+    ########################
+
     def deserialize(self, t: type[FunctionType], obj: str, ctx: CellContext):
         for fn, tag in ctx.cell.function_registry.items():
             if tag == obj:

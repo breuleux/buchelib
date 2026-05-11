@@ -104,6 +104,11 @@ class Cell:
     def register_type(self, *args, **kwargs):
         self.tagset.register(*args, **kwargs)
 
+    def register_function(self, fn):
+        if fn not in self.function_registry:
+            self.function_registry[fn] = f"F{next(_current_id)}"
+        return self.function_registry[fn]
+
     async def inputs(self):
         loop = asyncio.get_event_loop()
         reader = asyncio.StreamReader()
@@ -128,9 +133,7 @@ class Cell:
 
     @ovld
     def serialize(self, obj: FunctionType):
-        if obj not in self.function_registry:
-            self.function_registry[obj] = f"F{next(_current_id)}"
-        return t"document.embed({self.function_registry[obj]})"
+        return t"embed({self.register_function(obj)})"
 
     @ovld
     def serialize(self, obj: object):

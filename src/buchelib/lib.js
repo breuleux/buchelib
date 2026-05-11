@@ -34,5 +34,5 @@ function embed(function_id) {
     }
 }
 
-document.indicate = indicate;
-document.embed = embed;
+window.indicate = indicate;
+window.embed = embed;

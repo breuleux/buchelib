@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from string.templatelib import Template
 
 from hypetext import html
 
@@ -11,10 +12,14 @@ class Selection:
     selector: str = None
 
     def __getitem__(self, selector):
-        return type(self)(cell=self.cell, selector=f"{self.selector} {selector}")
+        sel = f"{self.selector} {selector}" if self.selector else selector
+        return type(self)(cell=self.cell, selector=sel)
 
     def exec(self, code):
-        self.cell.command(type="exec", code=code)
+        if isinstance(code, Template):
+            code = "".join(self.cell.interpreter.string_parts(code, "", "script"))
+
+        self.cell.command(type="exec", code=code, selector=self.selector)
 
     def print(self, tpl):
         node = html(tpl)
