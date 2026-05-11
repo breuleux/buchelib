@@ -246,6 +246,16 @@ class Cell:
             }
         )
 
+    def configure(self, **options):
+        self.bridge.send(
+            {
+                "type": "cell_configure",
+                "address": self.address,
+                "to": {"target": "terminal", "cell": self.id},
+                **options,
+            }
+        )
+
     def close(self, return_code=0):
         self.bridge.send(
             {
