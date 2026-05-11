@@ -1,0 +1,53 @@
+version = 1
+revision = 3
+requires-python = ">=3.14"
+
+[[package]]
+name = "buchelib"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "hypetext" },
+    { name = "ovld" },
+    { name = "serieux" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "hypetext", specifier = ">=0.0.3" },
+    { name = "ovld", specifier = ">=0.5.17" },
+    { name = "serieux", specifier = ">=0.3.13" },
+]
+
+[[package]]
+name = "hypetext"
+version = "0.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ovld" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/77/22/258d20b495da29a7b0d8eb971af387dd7a497bca7cadc39744e76539ba9b/hypetext-0.0.3.tar.gz", hash = "sha256:31e84577948da0e383ece72a755c0b5b2e2b9a4aaf668ab4e8864a82730b6d93", size = 14176, upload-time = "2026-05-14T21:31:33.127Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/a2/cb57509b8d80b1da8fa7dc51d772699576459e839a2c8529d633d2adbc03/hypetext-0.0.3-py3-none-any.whl", hash = "sha256:4a1986168ecb9706025ee2481ee9773d0dc75f4656e3289ad9ac0b452960f1aa", size = 4662, upload-time = "2026-05-14T21:31:31.703Z" },
+]
+
+[[package]]
+name = "ovld"
+version = "0.5.17"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/ad/709762f04332d2f3caed5e2c3823d24ea77bb8d417ca66bb24824aecb5fc/ovld-0.5.17.tar.gz", hash = "sha256:f95c17d1ec12ceaac129193e15dec9e67116e3fff88664d9890c1a0f6ccb87e6", size = 105487, upload-time = "2026-05-14T21:25:27.071Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/98/72/d3849c7138722fe1f798fc7a397d1eae857e755794cec2978e12ee18a7be/ovld-0.5.17-py3-none-any.whl", hash = "sha256:3ea036c67782578f0bbb6a8c9520a3cef4eed39fe2b0a534083a3c90118d2b7a", size = 40210, upload-time = "2026-05-14T21:25:25.864Z" },
+]
+
+[[package]]
+name = "serieux"
+version = "0.3.13"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ovld" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c4/c3/9e32f8261dc638404959d8ce52e694942d1d89a8cf3655af1091f303840c/serieux-0.3.13.tar.gz", hash = "sha256:8a5b54ac27bb627e1ddd1439b845095fcd1287ca337fbac3932f7cd5e7dc5c71", size = 183427, upload-time = "2026-03-12T17:47:31.22Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/30/7803a65ed696ba8a4e7febf71b533c57c88695a61f1ec1903d59ab9aa549/serieux-0.3.13-py3-none-any.whl", hash = "sha256:3cffff20714a5f07baba73bb8efc530e60273a7d2fa66a9bfa1e2f48b336071d", size = 56489, upload-time = "2026-03-12T17:47:29.85Z" },
+]
