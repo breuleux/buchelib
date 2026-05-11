@@ -43,8 +43,10 @@ class Call:
             ]
             result = await self.function(*deserialized)
             self.response_id.resolve(result)
+            return result
         except Exception as exc:
             self.response_id.reject(exc)
+            raise
 
 
 class BucheSerieux(Medley):

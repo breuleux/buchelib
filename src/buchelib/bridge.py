@@ -3,6 +3,7 @@ import json
 import os
 import select
 from dataclasses import dataclass, field
+from functools import cached_property
 from glob import glob
 from itertools import count
 from pathlib import Path
@@ -11,8 +12,10 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 from ovld import ovld, recurse
-from serieux import Context, Serieux, serieux
+from serieux import JSON, Context, Serieux, serieux
 from serieux.features.tagset import TagDict
+
+here = Path(__file__).parent
 
 _current_id = count()
 
@@ -39,6 +42,24 @@ def _expand_paths(p: Iterable):
         yield from recurse(x)
 
 
+@dataclass
+class CellMessage:
+    message: JSON
+    cell: Cell
+
+    def parse(self):
+        return self.cell.deserialize(self.message)
+
+
+@dataclass
+class PromptMessage:
+    message: JSON
+    prompt: Prompt
+
+    async def dispatch(self):
+        return await self.prompt.handler(self.prompt, self.message)
+
+
 class Bridge:
     def __init__(self, fd=None):
         if fd is None:
@@ -46,6 +67,8 @@ class Bridge:
         self.ctlin = os.fdopen(fd, "r", buffering=1)
         self._outfd = os.dup(fd)
         self.catalogue = {}
+        self.cells = {}
+        self.prompts = {}
 
     def send(self, payload):
         data = (json.dumps(payload) + "\n").encode()
@@ -89,6 +112,84 @@ class Bridge:
             self.avail(p)
         return self.catalogue[sp]
 
+    @cached_property
+    def srx(self):
+        from .srx import BucheSerieux
+
+        return (Serieux + BucheSerieux)()
+
+    def __setup_cell(self, cell):
+        self.cells[cell.id] = cell
+        cell.body().exec(here / "lib.js")
+        return cell
+
+    @cached_property
+    def main_cell(self):
+        from .htmlgen import BucheInterpreter
+
+        cell = Cell(
+            bridge=self,
+            interpreter_class=BucheInterpreter,
+            srx=self.srx,
+            id="main",
+        )
+        self.__setup_cell(cell)
+        return cell
+
+    def cell(self, echo=None):
+        from .htmlgen import BucheInterpreter
+
+        _id = uuid4().hex
+
+        cell = Cell(
+            bridge=self,
+            interpreter_class=BucheInterpreter,
+            srx=self.srx,
+            id=_id,
+        )
+        self.send(
+            {
+                "type": "cell_create",
+                "address": {"cell_id": _id},
+                "to": {"target": "terminal", "cell": _id},
+                "mode": "data",
+                "echo_html": echo,
+            }
+        )
+        self.__setup_cell(cell)
+        return cell
+
+    def prompt(self, label, handler=None):
+        prompt = Prompt(bridge=self, label=label, handler=handler)
+        self.send(
+            {
+                "type": "prompt_create",
+                "to": {"target": "terminal", "prompt": "python"},
+                "address": {"prompt_id": label},
+                "prompt": "<span style='color:#4ec9b0;'>sktk ]]]</span>",
+                "tab_html": label,
+                "name": label,
+                "tag": "python",
+                "language": "python",
+            }
+        )
+        self.prompts[label] = prompt
+        return prompt
+
+    async def __aiter__(self):
+        loop = asyncio.get_event_loop()
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        await loop.connect_read_pipe(lambda: protocol, self.ctlin)
+        async for line in reader:
+            data = json.loads(line)
+            to = data.pop("to", {})
+            if prid := to.get("prompt_id", None):
+                yield PromptMessage(message=data, prompt=self.prompts.get(prid, None))
+            else:
+                cell_id = to.get("cell_id", "main")
+                yield CellMessage(message=data, cell=self.cells.get(cell_id, None))
+
 
 _tagdict_defaults = {}
 
@@ -101,8 +202,10 @@ class Cell:
     tagset: TagDict = field(default_factory=lambda: TagDict(_tagdict_defaults))
     srx: Serieux = field(default_factory=lambda: serieux)
     function_registry: dict = field(default_factory=dict)
+    handler: Any = None
 
     def __post_init__(self):
+        self.address = {"cell_id": self.id} if self.id != "main" else {}
         self.interpreter = self.interpreter_class(self)
 
     @classmethod
@@ -135,7 +238,18 @@ class Cell:
             {
                 "type": "cell_send",
                 "message": args,
+                "address": self.address,
                 "to": {"target": "terminal", "cell": self.id},
+            }
+        )
+
+    def close(self, return_code=0):
+        self.bridge.send(
+            {
+                "type": "cell_close",
+                "address": self.address,
+                "to": {"target": "terminal", "cell": self.id},
+                "return_code": return_code,
             }
         )
 
@@ -158,3 +272,10 @@ class Cell:
 
 class CellContext(Context):
     cell: Cell
+
+
+@dataclass(kw_only=True)
+class Prompt:
+    bridge: Bridge
+    label: str
+    handler: Any
