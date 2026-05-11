@@ -50,6 +50,9 @@ class CellMessage:
     def parse(self):
         return self.cell.deserialize(self.message)
 
+    async def dispatch(self):
+        await self.parse().call()
+
 
 @dataclass
 class PromptMessage:
@@ -159,7 +162,7 @@ class Bridge:
         self.__setup_cell(cell)
         return cell
 
-    def prompt(self, label, handler=None):
+    def prompt(self, label, handler=None, language=None):
         prompt = Prompt(bridge=self, label=label, handler=handler)
         self.send(
             {
@@ -170,7 +173,7 @@ class Bridge:
                 "tab_html": label,
                 "name": label,
                 "tag": "python",
-                "language": "python",
+                "language": language,
             }
         )
         self.prompts[label] = prompt

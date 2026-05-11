@@ -18,7 +18,7 @@ class Interpreter:
                 cell.body().print(result)
             cell.close()
         except Exception as exc:
-            self.on_error(cell, exc)
+            await self.on_error(cell, exc)
             cell.close(1)
 
     async def handle_prompt_close(self, prompt, message):
