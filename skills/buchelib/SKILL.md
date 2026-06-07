@@ -86,17 +86,57 @@ Compound selectors accumulate (parent selector + child selector joined by a spac
 
 ---
 
-## Injecting CSS
+## Serving static assets (CSS, JS files)
 
-Pass a `Path` interpolated into a `t'<link>'` tag. Paths are automatically served via buche's internal file server:
+There are three ways to serve local files to the browser. Choose based on whether portability or simplicity matters more.
+
+### 1. Embed in a template string (simplest)
+
+Interpolate a `Path` directly into a t-string. buchelib rewrites it to a `buche://` URL and serves the file automatically:
 
 ```python
 from pathlib import Path
 
 body.print(t'<link rel="stylesheet" href={Path("styles.css")}>')
+body.exec(Path("mylib.js"))
 ```
 
-When a `Path` is interpolated into a t-string, it is replaced with the correct `buche://` URL automatically.
+This is the easiest approach for scripts written specifically for buche. The downside is that the HTML/JS references `buche://` URLs, so it cannot be reused as-is in a regular web app.
+
+### 2. Preload with `cell.map_files()` (process can exit early)
+
+Send all assets upfront before the browser requests them. The browser uses normal `/`-prefixed paths, and buche serves them from its cache — even after the Python process has terminated:
+
+```python
+cell.map_files({
+    "/styles.css": Path("styles.css"),
+    "/app.js":     Path("app.js"),
+})
+
+body.print(t'<link rel="stylesheet" href="/styles.css">')
+body.exec(Path("app.js"))
+```
+
+Use this when you want the script to exit (`cell.configure(sticky=True)`) but still have the interface remain fully functional. All assets must be known and sent upfront.
+
+### 3. Serve on demand via `ResolveRequest` (process stays alive)
+
+When the browser fetches a path the terminal doesn't have cached, it sends a `ResolveRequest` to Python. Handle it in the `cell.inputs()` loop and call `resolve_to()` to send the file back:
+
+```python
+from buchelib import ResolveRequest
+
+body.print(t'<link rel="stylesheet" href="/styles.css">')
+
+async for obj in cell.inputs():
+    if isinstance(obj, ResolveRequest):
+        if obj.path == "/styles.css":
+            obj.resolve_to(Path("styles.css"))
+    elif isinstance(obj, Callback):
+        await obj.call()
+```
+
+This keeps normal web paths in the HTML/JS — the same markup works in a regular web server without modification. The tradeoff is that the Python process must stay alive to answer requests.
 
 ---
 
@@ -176,14 +216,35 @@ or call it directly in JS:
 body.exec(t'const result = await {square:js}(7)')
 ```
 
-**Driving the event loop** — the script must process incoming calls:
+**Driving the event loop** — the script must process incoming messages. `cell.inputs()` is an async generator that yields one of four types:
+
+| Type | When yielded | What to do |
+|---|---|---|
+| `Callback` | JS called an embedded Python function | `await obj.call()` — runs the function and resolves the JS promise |
+| `ResolveRequest` | browser fetched a path not yet cached | `obj.resolve_to(Path(...))` — send the file back |
+| `Resize` | the iframe was resized | read `obj.width` / `obj.height` |
+| `RawMessage` | any other message type | read `obj.message` (a plain dict) |
+
+Minimal loop (callbacks only):
 
 ```python
 async for obj in cell.inputs():
     await obj.call()
 ```
 
-`obj.call()` deserializes the arguments, calls the function, and sends the return value back to the browser as the resolved promise.
+Loop that also handles resource requests:
+
+```python
+from buchelib import Callback, ResolveRequest
+
+async for obj in cell.inputs():
+    if isinstance(obj, ResolveRequest):
+        obj.resolve_to(Path(obj.path.lstrip("/")))
+    elif isinstance(obj, Callback):
+        await obj.call()
+```
+
+`Callback.call()` deserializes the arguments, calls the function, and sends the return value back to the browser as the resolved promise.
 
 ---
 
@@ -490,11 +551,13 @@ asyncio.run(main())
 | Append HTML | `body.print(t'...')` |
 | Replace contents | `body.set(t'...')` |
 | Run JS | `body.exec(t'...')` |
-| Load JS/CSS file | `body.exec(Path(...))` / `body.print(t'<link href={Path(...)}>')` |
+| Load JS/CSS (embed in template) | `body.exec(Path(...))` / `body.print(t'<link href={Path(...)}>')` |
+| Load JS/CSS (preload, process can exit) | `cell.map_files({"/x.css": Path("x.css")})` |
+| Load JS/CSS (on demand, process stays alive) | handle `ResolveRequest` in `cell.inputs()`, call `obj.resolve_to(Path(...))` |
 | Scope to selector | `body["#id"]` or `body[".cls"]` |
 | Embed Python fn in JS | `{fn:js}` in a t-string (produces `embed(...)`) |
 | Visual indicator | `event.indicate(fn, ...args)` in an onclick handler |
 | Declare indicator target | `indicator-selector="..."` attribute on the element |
 | Auto-focus on load | `id="prime-focus"` on the first focusable element |
 | Configure cell behavior | `cell.configure(sticky=True)` / `cell.configure(background=True)` |
-| Process callbacks | `async for obj in cell.inputs(): await obj.call()` |
+| Process callbacks | `async for obj in cell.inputs(): await obj.call()` (yields `Callback`, `ResolveRequest`, `Resize`, `RawMessage`) |

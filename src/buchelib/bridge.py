@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import select
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from itertools import count
 from pathlib import Path
@@ -26,15 +26,27 @@ class ResolveRequest:
     method: str
     path: str
     request_id: str
+    cell: "Cell" = None
 
-    async def respond(self, p: Path):
-        pass
+    def resolve_to(self, p: Path, mimetype: str = None):
+        payload = {
+            "type": "resolve",
+            "path": self.path,
+            "method": self.method,
+            "request_id": self.request_id,
+            **export_file(p.suffix, p),
+            "to": {"target": "terminal", "cell": self.cell.id},
+        }
+        if mimetype is not None:
+            payload["mimetype"] = mimetype
+        self.cell.bridge.send(payload)
 
 
 @dataclass
 class Resize:
     width: float = None
     height: float = None
+    cell: "Cell" = None
 
 
 @dataclass
@@ -89,18 +101,6 @@ class Bridge:
             raise Exception(f"Unsupported format: {p.suffix}")
         self.catalogue[str(p)] = f"buche://nonce/{nonce}/{rel}"
         return packed
-
-    def map_files(self, mapping):
-        for pth, file in mapping.items():
-            self.send(
-                {
-                    "type": "resolve",
-                    "path": pth,
-                    "method": "GET",
-                    **export_file(file.suffix, file),
-                    "to": {"target": "terminal", "cell": "main"},
-                }
-            )
 
     def avail(self, *files):
         concrete = list(expand_paths(files))
@@ -237,11 +237,23 @@ class Cell:
         if typ == "message":
             return self.deserialize(msg.pop("data"))
         elif typ == "resolve":
-            return self.srx.deserialize(ResolveRequest, msg)
+            return replace(self.srx.deserialize(ResolveRequest, msg), cell=self)
         elif typ == "resize":
-            return self.srx.deserialize(Resize, msg)
+            return replace(self.srx.deserialize(Resize, msg), cell=self)
         else:
             return RawMessage(msg)
+
+    def map_files(self, mapping):
+        for pth, file in mapping.items():
+            self.bridge.send(
+                {
+                    "type": "resolve",
+                    "path": pth,
+                    "method": "GET",
+                    **export_file(file.suffix, file),
+                    "to": {"target": "terminal", "cell": self.id},
+                }
+            )
 
     async def inputs(self):
         loop = asyncio.get_event_loop()
