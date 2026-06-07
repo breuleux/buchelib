@@ -4,42 +4,42 @@ import os
 import select
 from dataclasses import dataclass, field
 from functools import cached_property
-from glob import glob
 from itertools import count
 from pathlib import Path
 from types import FunctionType
-from typing import Any, Iterable
+from typing import Any
 from uuid import uuid4
 
-from ovld import ovld, recurse
+from ovld import ovld
 from serieux import JSON, Context, Serieux, serieux
 from serieux.features.tagset import TagDict
+
+from .files import expand_paths, export_file
 
 here = Path(__file__).parent
 
 _current_id = count()
 
 
-@ovld
-def _expand_paths(p: str):
-    if "*" in p:
-        for path in glob(p):
-            yield from recurse(Path(path))
-    else:
-        yield from recurse(Path(p))
+@dataclass
+class ResolveRequest:
+    method: str
+    path: str
+    request_id: str
+
+    async def respond(self, p: Path):
+        pass
 
 
-@ovld
-def _expand_paths(p: Path):
-    if p.is_dir():
-        raise Exception("Availing a directory is not allowed. Avail individual files.")
-    yield p
+@dataclass
+class Resize:
+    width: float = None
+    height: float = None
 
 
-@ovld
-def _expand_paths(p: Iterable):
-    for x in p:
-        yield from recurse(x)
+@dataclass
+class RawMessage:
+    message: JSON
 
 
 @dataclass
@@ -48,7 +48,7 @@ class CellMessage:
     cell: Cell
 
     def parse(self):
-        return self.cell.deserialize(self.message)
+        return self.cell.parse_message(self.message)
 
     async def dispatch(self):
         await self.parse().call()
@@ -84,18 +84,26 @@ class Bridge:
                 pass
 
     def _pack_file(self, nonce, rel, p):
-        match p.suffix:
-            case ".css":
-                packed = {"mimetype": "text/css", "content": p.read_text()}
-            case ".js":
-                packed = {"mimetype": "text/javascript", "content": p.read_text()}
-            case other:
-                raise Exception(f"Unsupported format: {other}")
+        packed = export_file(p.suffix, p)
+        if packed["mimetype"] is None:
+            raise Exception(f"Unsupported format: {p.suffix}")
         self.catalogue[str(p)] = f"buche://nonce/{nonce}/{rel}"
         return packed
 
+    def map_files(self, mapping):
+        for pth, file in mapping.items():
+            self.send(
+                {
+                    "type": "resolve",
+                    "path": pth,
+                    "method": "GET",
+                    **export_file(file.suffix, file),
+                    "to": {"target": "terminal", "cell": "main"},
+                }
+            )
+
     def avail(self, *files):
-        concrete = list(_expand_paths(files))
+        concrete = list(expand_paths(files))
         paths = [Path(f).resolve() for f in concrete]
         base = os.path.commonpath([str(p.parent) for p in paths])
         nonce = str(uuid4())
@@ -162,14 +170,14 @@ class Bridge:
         self.__setup_cell(cell)
         return cell
 
-    def prompt(self, label, handler=None, language=None):
+    def prompt(self, label, handler=None, language=None, prompt_html=None):
         prompt = Prompt(bridge=self, label=label, handler=handler)
         self.send(
             {
                 "type": "prompt_create",
                 "to": {"target": "terminal", "prompt": "python"},
                 "address": {"prompt_id": label},
-                "prompt": "<span style='color:#4ec9b0;'>sktk ]]]</span>",
+                "prompt": prompt_html or "<span style='color:#4ec9b0;'>}</span>",
                 "tab_html": label,
                 "name": label,
                 "tag": "python",
@@ -223,15 +231,26 @@ class Cell:
             self.function_registry[fn] = f"F{next(_current_id)}"
         return self.function_registry[fn]
 
+    def parse_message(self, msg):
+        msg.pop("to", None)
+        typ = msg.pop("type")
+        if typ == "message":
+            return self.deserialize(msg.pop("data"))
+        elif typ == "resolve":
+            return self.srx.deserialize(ResolveRequest, msg)
+        elif typ == "resize":
+            return self.srx.deserialize(Resize, msg)
+        else:
+            return RawMessage(msg)
+
     async def inputs(self):
         loop = asyncio.get_event_loop()
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
         await loop.connect_read_pipe(lambda: protocol, self.bridge.ctlin)
         async for line in reader:
-            data = json.loads(line)
-            data.pop("to", None)
-            yield self.deserialize(data)
+            msg = json.loads(line)
+            yield self.parse_message(msg)
 
     def avail(self, *files):
         return self.bridge.avail(*files)
@@ -275,6 +294,8 @@ class Cell:
         return self.srx.serialize(Any @ self.tagset, obj, CellContext(self))
 
     def deserialize(self, data):
+        if "$class" not in data:
+            return data
         return self.srx.deserialize(Any @ self.tagset, data, CellContext(self))
 
     def body(self):
