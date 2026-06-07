@@ -3,9 +3,9 @@ from pathlib import Path
 
 from serieux import Serieux
 
-from .bridge import Bridge, Cell
+from .bridge import Bridge, Cell, RawMessage, Resize, ResolveRequest
 from .htmlgen import BucheInterpreter
-from .srx import BucheSerieux
+from .srx import BucheSerieux, Callback
 
 here = Path(__file__).parent
 
@@ -42,3 +42,16 @@ def is_available():
         return True
     except ValueError, OSError:
         return False
+
+
+__all__ = [
+    "Bridge",
+    "Cell",
+    "ResolveRequest",
+    "RawMessage",
+    "Resize",
+    "Callback",
+    "bridge",
+    "main_cell",
+    "is_available",
+]
