@@ -31,7 +31,7 @@ function embed(function_id) {
     return async (...args) => {
         const serial = JSON.parse(JSON.stringify(args));
         return await window.buche.request({
-            $class: "buchelib.srx:Call",
+            $class: "buchelib.srx:Callback",
             function: function_id,
             args: serial
         });

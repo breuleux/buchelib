@@ -22,7 +22,7 @@ class ResponseId:
 
 @Cell.register_type_default
 @dataclass
-class Call:
+class Callback:
     function: FunctionType
     args: list[JSON]
     response_id: ResponseId
