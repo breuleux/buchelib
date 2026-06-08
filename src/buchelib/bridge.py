@@ -233,10 +233,13 @@ class Cell:
 
     def parse_message(self, msg):
         msg.pop("to", None)
-        typ = msg.pop("type")
+        typ = msg.pop("type", None)
         if typ == "message":
-            return self.deserialize(msg.pop("data"))
-        elif typ == "resolve":
+            data = msg.pop("data")
+            if "response_id" in msg:
+                data["response_id"] = msg["response_id"]
+            return self.deserialize(data)
+        if typ == "resolve":
             return replace(self.srx.deserialize(ResolveRequest, msg), cell=self)
         elif typ == "resize":
             return replace(self.srx.deserialize(Resize, msg), cell=self)
