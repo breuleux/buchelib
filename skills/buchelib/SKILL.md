@@ -1,3 +1,8 @@
+---
+name: buchelib
+description: Guide to building HTML interfaces with buchelib. Use this skill when writing Python scripts that produce interactive UIs inside the buche terminal — injecting HTML/CSS/JS, calling Python from JavaScript, streaming structured data to the browser, serving static assets, or building REPL-style interpreters.
+---
+
 # buchelib — Guide to building HTML interfaces
 
 buchelib is a Python library for producing HTML interfaces that run inside **buche** terminal iframes. A Python script drives the interface by sending HTML, CSS, and JavaScript to the cell; the browser can call back into Python via embedded async functions.
