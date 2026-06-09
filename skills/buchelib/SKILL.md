@@ -543,6 +543,104 @@ asyncio.run(main())
 
 ---
 
+## Structured data streaming — `cell.data` and `cell.register_data_handlers`
+
+Use this mechanism to push typed, structured data from Python into the browser — for example, new chart points, metrics, log entries, or chat messages. The data is defined as dataclasses; handlers are JavaScript functions that run whenever a new instance arrives.
+
+### Defining data types
+
+Define each data type as a plain Python dataclass:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Point:
+    x: float
+    y: float
+
+@dataclass
+class Metric:
+    name: str
+    value: float
+    timestamp: int
+```
+
+### Registering handlers
+
+Call `cell.register_data_handlers()` with a dict that maps each dataclass type to a JavaScript handler string. The handler receives the deserialized object as its argument:
+
+```python
+cell.register_data_handlers({
+    Point: "(msg) => { chart.addPoint(msg.x, msg.y); }",
+    Metric: "(msg) => { updateGauge(msg.name, msg.value); }",
+})
+```
+
+Call this before sending any data. Handlers are registered once per type per cell.
+
+### Sending data
+
+Call `cell.data()` with a dataclass instance. buchelib serializes the object, sends it through the data channel, and the registered JS handler is invoked in the browser:
+
+```python
+cell.data(Point(1.0, 2.5))
+cell.data(Metric(name="loss", value=0.042, timestamp=1718000000))
+```
+
+The type is inferred automatically from the instance. Pass `type=MyType` explicitly only if you need to override it.
+
+### Full example — live scatter plot
+
+```python
+#!/usr/bin/env -S uv run --script
+# /// script
+# dependencies = ["buchelib"]
+# ///
+
+import asyncio
+import math
+from dataclasses import dataclass
+from buchelib import main_cell
+
+@dataclass
+class Point:
+    x: float
+    y: float
+
+async def main():
+    cell = main_cell()
+    body = cell.body()
+
+    cell.register_data_handlers({
+        Point: """(msg) => {
+            const svg = document.querySelector('svg');
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', msg.x * 50 + 150);
+            circle.setAttribute('cy', msg.y * 50 + 150);
+            circle.setAttribute('r', 4);
+            svg.appendChild(circle);
+        }""",
+    })
+
+    body.print(t'<svg width="300" height="300" style="border:1px solid #ccc"></svg>')
+
+    for i in range(50):
+        await asyncio.sleep(0.05)
+        cell.data(Point(x=math.cos(i * 0.3), y=math.sin(i * 0.3)))
+
+asyncio.run(main())
+```
+
+### Notes
+
+- The JS handler string must be a single expression that evaluates to a function (arrow function or `function` expression).
+- Schema generation and registration happen automatically on the first `cell.data()` call for each type — no manual schema work needed.
+- `cell.data()` does not require the event loop; it writes synchronously to the data channel and returns immediately.
+- Data streaming works alongside `cell.inputs()`: run the inputs loop in parallel (e.g. with `asyncio.gather`) if you also need to handle callbacks.
+
+---
+
 ## Quick reference
 
 | Operation | Method |
@@ -561,3 +659,5 @@ asyncio.run(main())
 | Auto-focus on load | `id="prime-focus"` on the first focusable element |
 | Configure cell behavior | `cell.configure(sticky=True)` / `cell.configure(background=True)` |
 | Process callbacks | `async for obj in cell.inputs(): await obj.call()` (yields `Callback`, `ResolveRequest`, `Resize`, `RawMessage`) |
+| Register structured data handlers | `cell.register_data_handlers({MyDataclass: "(msg) => { ... }"})` |
+| Send structured data to browser | `cell.data(my_dataclass_instance)` |

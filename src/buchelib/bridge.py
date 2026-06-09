@@ -11,7 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from ovld import ovld
-from serieux import JSON, Context, Serieux, serieux
+from serieux import JSON, Context, Serieux, schema, serialize, serieux
 from serieux.features.tagset import TagDict
 
 from .files import expand_paths, export_file
@@ -19,6 +19,7 @@ from .files import expand_paths, export_file
 here = Path(__file__).parent
 
 _current_id = count()
+type_ = type
 
 
 @dataclass
@@ -75,25 +76,41 @@ class PromptMessage:
         return await self.prompt.handler(self.prompt, self.message)
 
 
+def _write(payload, fd):
+    data = (json.dumps(payload) + "\n").encode()
+    written = 0
+    while written < len(data):
+        select.select([], [fd], [])
+        try:
+            written += os.write(fd, data[written:])
+        except BlockingIOError:
+            pass
+
+
 class Bridge:
     def __init__(self, fd=None):
         if fd is None:
             fd = int(os.environ.get("BUCHE_CONTROL_FD", 5))
+        self._dataoutfd = 4
         self.ctlin = os.fdopen(fd, "r", buffering=1)
         self._outfd = os.dup(fd)
         self.catalogue = {}
         self.cells = {}
         self.prompts = {}
+        self.schemas = {}
 
     def send(self, payload):
-        data = (json.dumps(payload) + "\n").encode()
-        written = 0
-        while written < len(data):
-            select.select([], [self._outfd], [])
-            try:
-                written += os.write(self._outfd, data[written:])
-            except BlockingIOError:
-                pass
+        _write(payload, self._outfd)
+
+    def data(self, payload, type=None):
+        type = type or type_(payload)
+        if type not in self.schemas:
+            sch = schema(type).compile()
+            sch["$name"] = self.schemas[type] = type.__name__
+            _write(sch, self._dataoutfd)
+        payload = serialize(type, payload)
+        payload["$schema"] = self.schemas[type]
+        _write(payload, self._dataoutfd)
 
     def _pack_file(self, nonce, rel, p):
         packed = export_file(p.suffix, p)
@@ -299,6 +316,14 @@ class Cell:
                 "return_code": return_code,
             }
         )
+
+    def register_data_handlers(self, handlers):
+        self.command(
+            type="register_schemas", schemas={t.__name__: code for t, code in handlers.items()}
+        )
+
+    def data(self, payload, type=None):
+        self.bridge.data(payload, type=type)
 
     @ovld
     def serialize(self, obj: FunctionType):
