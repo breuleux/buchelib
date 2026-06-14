@@ -14,10 +14,10 @@ class ResponseId:
     cell: Cell
 
     def resolve(self, value):
-        self.cell.command(type="resolve", value=value, response_id=self.id)
+        self.cell.command(type="response", value=value, response_id=self.id)
 
     def reject(self, error):
-        self.cell.command(type="resolve", error=str(error), response_id=self.id)
+        self.cell.command(type="response", error=str(error), response_id=self.id)
 
 
 @Cell.register_type_default
