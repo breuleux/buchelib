@@ -1,6 +1,6 @@
 [project]
 name = "buchelib"
-version = "0.0.4"
+version = "0.0.5"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
-    "hypetext>=0.0.4",
+    "hypetext>=0.0.5",
     "ovld>=0.5.17",
     "serieux>=0.3.13",
 ]
