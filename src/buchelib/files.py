@@ -55,7 +55,7 @@ def export_file(suffix: Literal[".js"], file: Path):
 def export_file(suffix: Literal[".png"] | Literal[".jpeg"], file: Path):
     content = open(file, "rb").read()
     return {
-        "mimetype": "image/{suffix.lstrip('.')}",
+        "mimetype": f"image/{suffix.lstrip('.')}",
         "content": base64.b64encode(content).decode(),
         "encoding": "base64",
     }

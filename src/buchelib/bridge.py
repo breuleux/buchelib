@@ -22,10 +22,11 @@ _current_id = count()
 type_ = type
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ResolveRequest:
     method: str
     path: str
+    params: dict[str, str] = field(default_factory=dict)
     request_id: str
     cell: "Cell" = None
 
@@ -239,6 +240,7 @@ class Cell:
     @classmethod
     def register_type_default(cls, fn):
         _tagdict_defaults[f"{fn.__module__}:{fn.__qualname__}"] = fn
+        return fn
 
     def register_type(self, *args, **kwargs):
         self.tagset.register(*args, **kwargs)
