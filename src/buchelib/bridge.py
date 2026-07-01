@@ -165,7 +165,7 @@ class Bridge:
         self.__setup_cell(cell)
         return cell
 
-    def cell(self, echo=None):
+    def cell(self, echo=None, behavior="background"):
         from .htmlgen import BucheInterpreter
 
         _id = uuid4().hex
@@ -182,21 +182,26 @@ class Bridge:
                 "address": {"cell_id": _id},
                 "to": {"target": "terminal", "cell": _id},
                 "mode": "data",
+                "background": behavior == "background",
+                "sticky": behavior == "sticky",
                 "echo_html": echo,
             }
         )
         self.__setup_cell(cell)
         return cell
 
-    def prompt(self, label, handler=None, language=None, prompt_html=None):
+    def prompt(self, label, handler=None, language=None, prompt_html=None, hue=200, chroma=0.5):
         prompt = Prompt(bridge=self, label=label, handler=handler)
         self.send(
             {
                 "type": "prompt_create",
                 "to": {"target": "terminal", "prompt": "python"},
                 "address": {"prompt_id": label},
-                "prompt": prompt_html or "<span style='color:#4ec9b0;'>}</span>",
-                "tab_html": label,
+                "prompt": (
+                    prompt_html or f"<span style='color:oklch(0.65 {chroma} {hue});'>}}</span>"
+                ),
+                "color": {"hue": hue, "chroma": chroma},
+                "label": label,
                 "name": label,
                 "tag": "python",
                 "language": language,
