@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 import json
 import os
+import re
 import select
 from dataclasses import dataclass, field, replace
 from functools import cached_property
@@ -11,7 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from ovld import ovld
-from serieux import JSON, Context, Serieux, schema, serialize, serieux
+from serieux import JSON, Context, Serieux, serialize, serieux
 from serieux.features.tagset import TagDict
 
 from .files import expand_paths, export_file
@@ -20,6 +22,19 @@ here = Path(__file__).parent
 
 _current_id = count()
 type_ = type
+
+# Messages are addressed by arrays. The terminal is ["$term"]; a process speaks
+# from ["$proc", ...rest], a *relative* address: the parent coquille rewrites
+# it into its own subtree (["$proc", "cq", <pid>, ...rest]) on the way out, and
+# strips `to` addresses back to this form on the way in.
+TERM = ["$term"]
+PROC = "$proc"
+MAIN = "$main"
+
+
+def _plain_text(html):
+    # The new protocol echoes plain styled text, not HTML markup.
+    return re.sub(r"<[^>]+>", "", html or "")
 
 
 @dataclass(kw_only=True)
@@ -34,14 +49,13 @@ class ResolveRequest:
         payload = {
             "type": "resolve",
             "path": self.path,
-            "method": self.method,
             "request_id": self.request_id,
+            "status": 200,
             **export_file(p.suffix, p),
-            "to": {"target": "terminal", "cell": self.cell.id},
         }
         if mimetype is not None:
             payload["mimetype"] = mimetype
-        self.cell.bridge.send(payload)
+        self.cell.command(**payload)
 
 
 @dataclass
@@ -74,6 +88,8 @@ class PromptMessage:
     prompt: Prompt
 
     async def dispatch(self):
+        if self.prompt is None or self.prompt.handler is None:
+            return None
         return await self.prompt.handler(self.prompt, self.message)
 
 
@@ -92,54 +108,82 @@ class Bridge:
     def __init__(self, fd=None):
         if fd is None:
             fd = int(os.environ.get("BUCHE_CONTROL_FD", 5))
-        self._dataoutfd = 4
         self.ctlin = os.fdopen(fd, "r", buffering=1)
         self._outfd = os.dup(fd)
+        # Availed files: local path -> served URL, and back (for answering
+        # resource requests from cells that missed the cache push).
         self.catalogue = {}
+        self.served = {}
         self.cells = {}
+        self.cells_by_address = {}
         self.prompts = {}
+        self.prompts_by_address = {}
         self.schemas = {}
 
     def send(self, payload):
         _write(payload, self._outfd)
 
+    # ── structured data ──────────────────────────────────────────────────────
+
     def data(self, payload, type=None):
         type = type or type_(payload)
         if type not in self.schemas:
-            sch = schema(type).compile()
-            sch["$name"] = self.schemas[type] = type.__name__
-            _write(sch, self._dataoutfd)
+            self.schemas[type] = type.__name__
         payload = serialize(type, payload)
         payload["$schema"] = self.schemas[type]
-        _write(payload, self._dataoutfd)
+        # Data is per-cell now: deliver it to every cell that registered a
+        # handler for this schema (the old data channel was global). With no
+        # registered handler anywhere, send it to the main cell.
+        targets = [c for c in self.cells.values() if self.schemas[type] in c.data_schemas]
+        if not targets:
+            targets = [self.main_cell]
+        for cell in targets:
+            cell.command(type="data", data=payload)
 
-    def _pack_file(self, nonce, rel, p):
-        packed = export_file(p.suffix, p)
-        if packed["mimetype"] is None:
-            raise Exception(f"Unsupported format: {p.suffix}")
-        self.catalogue[str(p)] = f"buche://nonce/{nonce}/{rel}"
-        return packed
+    # ── files ────────────────────────────────────────────────────────────────
+
+    def _serve_url(self, p):
+        digest = hashlib.sha1(str(p).encode()).hexdigest()[:10]
+        return f"/_buchelib/{digest}/{p.name}"
 
     def avail(self, *files):
-        concrete = list(expand_paths(files))
-        paths = [Path(f).resolve() for f in concrete]
-        base = os.path.commonpath([str(p.parent) for p in paths])
-        nonce = str(uuid4())
-        self.send(
-            {
-                "type": "library",
-                "nonce": nonce,
-                "files": {
-                    str(rel := p.relative_to(base)): self._pack_file(nonce, rel, p) for p in paths
-                },
-            }
-        )
+        concrete = [Path(p).resolve() for p in expand_paths(list(files))]
+        for p in concrete:
+            packed = export_file(p.suffix, p)
+            if packed["mimetype"] is None:
+                raise Exception(f"Unsupported format: {p.suffix}")
+            url = self.catalogue.get(str(p)) or self._serve_url(p)
+            self.catalogue[str(p)] = url
+            self.served[url] = p
+            # Push into every live GUI; a cell created later is answered on
+            # demand (see _resolve_from_catalogue).
+            for cell in self.cells.values():
+                cell.command(type="resolve", path=url, status=200, **packed)
 
     def url(self, p):
         sp = str(Path(p).resolve())
         if sp not in self.catalogue:
-            self.avail(p)
+            self.avail(Path(sp))
         return self.catalogue[sp]
+
+    def _resolve_from_catalogue(self, cell, payload):
+        """Answer a GUI resource request from an availed file, if we have it.
+        (The old terminal served availed files itself; now the library does.)
+        Returns whether the request was answered."""
+        path = payload.get("path")
+        p = self.served.get(path)
+        if p is None:
+            return False
+        cell.command(
+            type="resolve",
+            request_id=payload.get("request_id"),
+            path=path,
+            status=200,
+            **export_file(p.suffix, p),
+        )
+        return True
+
+    # ── cells & prompts ──────────────────────────────────────────────────────
 
     @cached_property
     def srx(self):
@@ -147,8 +191,13 @@ class Bridge:
 
         return (Serieux + BucheSerieux)()
 
-    def __setup_cell(self, cell):
+    def _setup_cell(self, cell, config=None):
         self.cells[cell.id] = cell
+        self.cells_by_address[tuple(cell.address)] = cell
+        # The terminal only routes commands to cells that exist; bring the
+        # cell into existence first (under coquille this merges with the
+        # shell's own configuration of the process's main cell).
+        cell.configure(represents=[PROC], **(config or {}))
         cell.body().exec(here / "lib.js")
         return cell
 
@@ -156,59 +205,65 @@ class Bridge:
     def main_cell(self):
         from .htmlgen import BucheInterpreter
 
-        cell = Cell(
-            bridge=self,
-            interpreter_class=BucheInterpreter,
-            srx=self.srx,
-            id="main",
+        return self._setup_cell(
+            Cell(bridge=self, interpreter_class=BucheInterpreter, srx=self.srx, id="main")
         )
-        self.__setup_cell(cell)
-        return cell
 
-    def cell(self, echo=None, behavior="background"):
+    def cell(self, echo=None, behavior="background", id=None, under=None, name=None, ranges=None):
         from .htmlgen import BucheInterpreter
 
-        _id = uuid4().hex
+        name = name or uuid4().hex
 
         cell = Cell(
             bridge=self,
             interpreter_class=BucheInterpreter,
             srx=self.srx,
-            id=_id,
+            id=name,
         )
-        self.send(
-            {
-                "type": "cell_create",
-                "address": {"cell_id": _id},
-                "to": {"target": "terminal", "cell": _id},
-                "mode": "data",
-                "background": behavior == "background",
-                "sticky": behavior == "sticky",
-                "echo_html": echo,
+        if under is not None:
+            # Nest the cell under another entry (e.g. the prompt that produced
+            # it): the cell's address extends the parent's (prompt "claude" +
+            # name "1" → ["$proc", "claude", "1"], shown as `claude.1`), so the
+            # terminal associates the cell with the prompt — its echo and
+            # status hang below the prompt, and closing it sweeps the cell.
+            parent = under.address if isinstance(under, Prompt) else list(under)
+            cell.address = [*parent, name]
+        config = {
+            "background": behavior == "background",
+            "sticky": behavior == "sticky",
+        }
+        if echo is not None:
+            config["submission"] = {
+                "content": {"text": _plain_text(echo), "ranges": ranges or []}
             }
-        )
-        self.__setup_cell(cell)
-        return cell
+        if id is not None:
+            # Repeating the command's id lets the terminal focus the cell.
+            config["id"] = id
+        return self._setup_cell(cell, config)
 
     def prompt(self, label, handler=None, language=None, prompt_html=None, hue=200, chroma=0.5):
-        prompt = Prompt(bridge=self, label=label, handler=handler)
+        # `language` is unused: highlighting now comes from parse answers the
+        # process itself sends back (prompt_configure with a request_id).
+        prompt = Prompt(bridge=self, label=label, handler=handler, address=[PROC, label])
         self.send(
             {
-                "type": "prompt_create",
-                "to": {"target": "terminal", "prompt": "python"},
-                "address": {"prompt_id": label},
-                "prompt": (
-                    prompt_html or f"<span style='color:oklch(0.65 {chroma} {hue});'>}}</span>"
-                ),
-                "color": {"hue": hue, "chroma": chroma},
+                "type": "prompt_configure",
+                "from": prompt.address,
+                "to": TERM,
                 "label": label,
-                "name": label,
-                "tag": "python",
-                "language": language,
+                "color": f"oklch(0.65 {chroma} {hue})",
+                # StyledText requires both `text` and `ranges`.
+                "submission": {"context": {"text": _plain_text(prompt_html) or "}}", "ranges": []}},
             }
         )
         self.prompts[label] = prompt
+        self.prompts_by_address[tuple(prompt.address)] = prompt
         return prompt
+
+    # ── incoming messages ────────────────────────────────────────────────────
+
+    def _cell_for(self, to):
+        return self.cells_by_address.get(tuple(to or []), None) or self.main_cell
 
     async def __aiter__(self):
         loop = asyncio.get_event_loop()
@@ -217,12 +272,23 @@ class Bridge:
         await loop.connect_read_pipe(lambda: protocol, self.ctlin)
         async for line in reader:
             data = json.loads(line)
-            to = data.pop("to", {})
-            if prid := to.get("prompt_id", None):
-                yield PromptMessage(message=data, prompt=self.prompts.get(prid, None))
+            typ = data.get("type")
+            if typ == "data":
+                # A GUI message relayed by the terminal.
+                payload = data.get("data")
+                cell = self._cell_for(data.get("to"))
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("type") == "resolve"
+                    and self._resolve_from_catalogue(cell, payload)
+                ):
+                    continue
+                yield CellMessage(message=payload, cell=cell)
+            elif typ in ("command", "parse", "signal", "close"):
+                prompt = self.prompts_by_address.get(tuple(data.get("to") or []), None)
+                yield PromptMessage(message=data, prompt=prompt)
             else:
-                cell_id = to.get("cell_id", "main")
-                yield CellMessage(message=data, cell=self.cells.get(cell_id, None))
+                yield CellMessage(message=data, cell=self._cell_for(data.get("to")))
 
 
 _tagdict_defaults = {}
@@ -239,7 +305,8 @@ class Cell:
     handler: Any = None
 
     def __post_init__(self):
-        self.address = {"cell_id": self.id} if self.id != "main" else {}
+        self.address = [PROC, MAIN] if self.id == "main" else [PROC, self.id]
+        self.data_schemas = set()
         self.interpreter = self.interpreter_class(self)
 
     @classmethod
@@ -256,7 +323,9 @@ class Cell:
         return self.function_registry[fn]
 
     def parse_message(self, msg):
+        msg = dict(msg)
         msg.pop("to", None)
+        msg.pop("from", None)
         typ = msg.pop("type", None)
         if typ == "message":
             data = msg.pop("data")
@@ -266,20 +335,23 @@ class Cell:
         if typ == "resolve":
             return replace(self.srx.deserialize(ResolveRequest, msg), cell=self)
         elif typ == "resize":
-            return replace(self.srx.deserialize(Resize, msg), cell=self)
+            pixel = msg.get("pixel") or {}
+            return Resize(
+                width=pixel.get("width", msg.get("width")),
+                height=pixel.get("height", msg.get("height")),
+                cell=self,
+            )
         else:
             return RawMessage(msg)
 
     def map_files(self, mapping):
         for pth, file in mapping.items():
-            self.bridge.send(
-                {
-                    "type": "resolve",
-                    "path": pth,
-                    "method": "GET",
-                    **export_file(file.suffix, file),
-                    "to": {"target": "terminal", "cell": self.id},
-                }
+            file = Path(file)
+            self.bridge.served[str(pth)] = file
+            # No request_id: this pre-pushes the resource into the GUI's
+            # cache (a later request for the path is then instant).
+            self.command(
+                type="resolve", path=str(pth), status=200, **export_file(file.suffix, file)
             )
 
     async def inputs(self):
@@ -289,45 +361,53 @@ class Cell:
         await loop.connect_read_pipe(lambda: protocol, self.bridge.ctlin)
         async for line in reader:
             msg = json.loads(line)
-            yield self.parse_message(msg)
+            typ = msg.get("type")
+            if typ == "data":
+                payload = msg.get("data")
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("type") == "resolve"
+                    and self.bridge._resolve_from_catalogue(self, payload)
+                ):
+                    continue
+                yield self.parse_message(payload)
+            elif typ == "resize":
+                yield self.parse_message(msg)
+            else:
+                yield RawMessage(msg)
 
     def avail(self, *files):
         return self.bridge.avail(*files)
 
     def command(self, **args):
+        # The protocol schemas are strict: optional fields must be absent,
+        # not null.
+        args = {k: v for k, v in args.items() if v is not None}
         return self.bridge.send(
-            {
-                "type": "cell_send",
-                "message": args,
-                "address": self.address,
-                "to": {"target": "terminal", "cell": self.id},
-            }
+            {"type": "cell_send", "from": self.address, "to": TERM, "message": args}
         )
 
     def configure(self, **options):
-        self.bridge.send(
-            {
-                "type": "cell_configure",
-                "address": self.address,
-                "to": {"target": "terminal", "cell": self.id},
-                **options,
-            }
-        )
+        options = {k: v for k, v in options.items() if v is not None}
+        self.bridge.send({"type": "cell_configure", "from": self.address, "to": TERM, **options})
 
     def close(self, return_code=0):
         self.bridge.send(
             {
-                "type": "cell_close",
-                "address": self.address,
-                "to": {"target": "terminal", "cell": self.id},
-                "return_code": return_code,
+                "type": "close",
+                "from": self.address,
+                "to": TERM,
+                "outcome": {
+                    "type": "success" if return_code == 0 else "error",
+                    "code": return_code,
+                },
             }
         )
 
     def register_data_handlers(self, handlers):
-        self.command(
-            type="register_schemas", schemas={t.__name__: code for t, code in handlers.items()}
-        )
+        schemas = {t.__name__: code for t, code in handlers.items()}
+        self.data_schemas.update(schemas)
+        self.command(type="register_schemas", schemas=schemas)
 
     def data(self, payload, type=None):
         self.bridge.data(payload, type=type)
@@ -360,3 +440,4 @@ class Prompt:
     bridge: Bridge
     label: str
     handler: Any
+    address: list = None

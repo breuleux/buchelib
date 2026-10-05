@@ -9,7 +9,9 @@ class Interpreter:
         pass
 
     async def handle_prompt_submit(self, prompt, message):
-        cell = prompt.bridge.cell(echo=message.get("echo_html", None))
+        # The `id` repeats the command's: the terminal uses it to give the
+        # new cell the focus.
+        cell = prompt.bridge.cell(echo=message.get("text"), id=message.get("id"))
         try:
             result = await self.eval(cell, message["text"])
             if result is not None:
@@ -24,7 +26,19 @@ class Interpreter:
 
     async def __call__(self, prompt, message):
         msg_type = message.get("type")
-        handler_name = f"handle_{msg_type}"
+        if msg_type == "command":
+            # The terminal asks the driver to run a command: submit (the user
+            # pressed Enter), parse (for a highlight answer), ...
+            handler_name = {
+                "submit": "handle_prompt_submit",
+                "parse": "handle_parse",
+            }.get(message.get("command"), "handle_command")
+        elif msg_type == "parse":
+            handler_name = "handle_parse"
+        elif msg_type in ("signal", "close"):
+            handler_name = "handle_prompt_close"
+        else:
+            handler_name = f"handle_{msg_type}"
         handler = getattr(self, handler_name, None)
         if handler is not None and callable(handler):
             return await handler(prompt, message)

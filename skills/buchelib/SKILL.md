@@ -359,7 +359,7 @@ Make each cell focusable with `tabindex="-1"` and the table itself with `tabinde
 
 **Use `<button>` for actions** — buttons respond to Enter and Space without extra handling.
 
-**Quit:** always bind `q` and/or `Escape` to terminate the interface. `window.close()` does not work — the Python process must be killed. Before killing the process, call `window.buche.blur()` to return focus to the terminal — without it, focus stays stuck in the cell because the blur call can't reach an already-terminated process. Define a Python callback that calls `os._exit(0)`, embed it, and call it (no need to await):
+**Quit:** always bind `q` and/or `Escape` to terminate the interface. `window.close()` does not work — the Python process must be killed. Before killing the process, call `window.buche.leave()` to tell the terminal the user is done: the focus abandons the cell entirely — even a sticky one (the cell stays alive and visible; clicking it or navigating onto it returns the focus). `window.buche.blur()` is the softer variant: it only escapes the iframe, leaving the focus on the cell. Neither call can reach an already-terminated process, so do it before killing. Define a Python callback that calls `os._exit(0)`, embed it, and call it (no need to await):
 
 ```python
 async def quit():
@@ -369,7 +369,7 @@ async def quit():
 ```javascript
 const quitFn = {quit};  // in t-string exec
 // ...
-if (e.key === 'q' || e.key === 'Escape') { window.buche.blur(); quitFn(); }
+if (e.key === 'q' || e.key === 'Escape') { window.buche.leave(); quitFn(); }
 ```
 
 If the exec block is an f-string (e.g. because it contains HTML tags), embed the function via `window` in a separate t-string exec first, so it is visible across blocks:
@@ -378,7 +378,7 @@ If the exec block is an f-string (e.g. because it contains HTML tags), embed the
 body.exec(t'window.quitFn = {quit};')
 body.exec(f"""
     // ... rest of JS ...
-    if (e.key === 'q') {{ window.buche.blur(); quitFn(); }}
+    if (e.key === 'q') {{ window.buche.leave(); quitFn(); }}
 """)
 
 **Help overlay:** keep the shortcut help hidden by default and toggle it with `?`. A simple approach:

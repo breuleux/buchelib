@@ -1,13 +1,7 @@
 import os
-from pathlib import Path
-
-from serieux import Serieux
 
 from .bridge import Bridge, Cell, RawMessage, Resize, ResolveRequest
-from .htmlgen import BucheInterpreter
-from .srx import BucheSerieux, Callback
-
-here = Path(__file__).parent
+from .srx import Callback
 
 __bridge = None
 __main_cell = None
@@ -23,13 +17,10 @@ def bridge():
 def main_cell():
     global __main_cell
     if not __main_cell:
-        __main_cell = Cell(
-            bridge=bridge(),
-            interpreter_class=BucheInterpreter,
-            srx=(Serieux + BucheSerieux)(),
-            id="main",
-        )
-        __main_cell.body().exec(here / "lib.js")
+        # The bridge's main cell: registered with the bridge (so data and
+        # file serving can find it), brought into existence on the terminal,
+        # and primed with the client-side runtime (lib.js).
+        __main_cell = bridge().main_cell
     return __main_cell
 
 
