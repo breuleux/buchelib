@@ -278,7 +278,7 @@ Style the indicator class in your CSS:
 
 ## Cell configuration
 
-Use `cell.configure()` to send a `cell_configure` message to the terminal. Call it any time after the cell is created — typically right after initial rendering.
+Use `cell.configure()` to send a `configure` message (with `kind: "frame"`) to the terminal. Call it any time after the cell is created — typically right after initial rendering.
 
 ```python
 cell.configure(sticky=True)   # keep focus on the cell when the process ends

@@ -195,9 +195,10 @@ class Bridge:
         self.cells[cell.id] = cell
         self.cells_by_address[tuple(cell.address)] = cell
         # The terminal only routes commands to cells that exist; bring the
-        # cell into existence first (under coquille this merges with the
-        # shell's own configuration of the process's main cell).
-        cell.configure(represents=[PROC], **(config or {}))
+        # cell into existence first (under coquille it takes the process's
+        # placeholder over, and its look). Its ✕ ends the process once the
+        # process has nothing else on screen.
+        cell.configure(**(config or {}))
         cell.body().exec(here / "lib.js")
         return cell
 
@@ -266,26 +267,35 @@ class Bridge:
     def _cell_for(self, to):
         return self.cells_by_address.get(tuple(to or []), None) or self.main_cell
 
-    async def __aiter__(self):
+    async def _lines(self):
+        """The messages the terminal sends: one JSON object per line of the
+        control channel."""
         loop = asyncio.get_event_loop()
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
         await loop.connect_read_pipe(lambda: protocol, self.ctlin)
         async for line in reader:
-            data = json.loads(line)
+            yield json.loads(line)
+
+    def _served(self, cell, payload):
+        """Whether `payload` (a GUI message) is a resource request the
+        catalogue answered for `cell`."""
+        return (
+            isinstance(payload, dict)
+            and payload.get("type") == "resolve"
+            and self._resolve_from_catalogue(cell, payload)
+        )
+
+    async def __aiter__(self):
+        async for data in self._lines():
             typ = data.get("type")
             if typ == "data":
                 # A GUI message relayed by the terminal.
                 payload = data.get("data")
                 cell = self._cell_for(data.get("to"))
-                if (
-                    isinstance(payload, dict)
-                    and payload.get("type") == "resolve"
-                    and self._resolve_from_catalogue(cell, payload)
-                ):
-                    continue
-                yield CellMessage(message=payload, cell=cell)
-            elif typ in ("command", "parse", "signal", "close"):
+                if not self._served(cell, payload):
+                    yield CellMessage(message=payload, cell=cell)
+            elif typ in ("command", "parse", "signal"):
                 prompt = self.prompts_by_address.get(tuple(data.get("to") or []), None)
                 yield PromptMessage(message=data, prompt=prompt)
             else:
@@ -337,11 +347,7 @@ class Cell:
             return replace(self.srx.deserialize(ResolveRequest, msg), cell=self)
         elif typ == "resize":
             pixel = msg.get("pixel") or {}
-            return Resize(
-                width=pixel.get("width", msg.get("width")),
-                height=pixel.get("height", msg.get("height")),
-                cell=self,
-            )
+            return Resize(width=pixel.get("width"), height=pixel.get("height"), cell=self)
         else:
             return RawMessage(msg)
 
@@ -356,22 +362,12 @@ class Cell:
             )
 
     async def inputs(self):
-        loop = asyncio.get_event_loop()
-        reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await loop.connect_read_pipe(lambda: protocol, self.bridge.ctlin)
-        async for line in reader:
-            msg = json.loads(line)
+        async for msg in self.bridge._lines():
             typ = msg.get("type")
             if typ == "data":
                 payload = msg.get("data")
-                if (
-                    isinstance(payload, dict)
-                    and payload.get("type") == "resolve"
-                    and self.bridge._resolve_from_catalogue(self, payload)
-                ):
-                    continue
-                yield self.parse_message(payload)
+                if not self.bridge._served(self, payload):
+                    yield self.parse_message(payload)
             elif typ == "resize":
                 yield self.parse_message(msg)
             else:
