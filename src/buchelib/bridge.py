@@ -243,17 +243,18 @@ class Bridge:
 
     def prompt(self, label, handler=None, language=None, prompt_html=None, hue=200, chroma=0.5):
         # `language` is unused: highlighting now comes from parse answers the
-        # process itself sends back (prompt_configure with a request_id).
+        # process itself sends back (a prompt configure with a request_id).
         prompt = Prompt(bridge=self, label=label, handler=handler, address=[PROC, label])
         self.send(
             {
-                "type": "prompt_configure",
+                "type": "configure",
+                "kind": "prompt",
                 "from": prompt.address,
                 "to": TERM,
                 "label": label,
                 "color": f"oklch(0.65 {chroma} {hue})",
                 # StyledText requires both `text` and `ranges`.
-                "submission": {"context": {"text": _plain_text(prompt_html) or "}}", "ranges": []}},
+                "input": {"context": {"text": _plain_text(prompt_html) or "}}", "ranges": []}},
             }
         )
         self.prompts[label] = prompt
@@ -384,12 +385,15 @@ class Cell:
         # not null.
         args = {k: v for k, v in args.items() if v is not None}
         return self.bridge.send(
-            {"type": "cell_send", "from": self.address, "to": TERM, "message": args}
+            {"type": "send", "from": self.address, "to": TERM, "message": args}
         )
 
     def configure(self, **options):
         options = {k: v for k, v in options.items() if v is not None}
-        self.bridge.send({"type": "cell_configure", "from": self.address, "to": TERM, **options})
+        # buchelib cells are GUIs (they render HTML).
+        self.bridge.send(
+            {"type": "configure", "kind": "frame", "from": self.address, "to": TERM, **options}
+        )
 
     def close(self, return_code=0):
         self.bridge.send(
