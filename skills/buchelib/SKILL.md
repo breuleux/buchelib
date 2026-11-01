@@ -227,8 +227,8 @@ body.exec(t'const result = await {square:js}(7)')
 |---|---|---|
 | `Callback` | JS called an embedded Python function | `await obj.call()` — runs the function and resolves the JS promise |
 | `ResolveRequest` | browser fetched a path not yet cached | `obj.resolve_to(Path(...))` — send the file back |
-| `Resize` | the iframe was resized | read `obj.width` / `obj.height` |
-| `RawMessage` | any other message type | read `obj.message` (a plain dict) |
+| `Resize` | the iframe was resized | read `obj.width` / `obj.height` (`call()` does nothing) |
+| `RawMessage` | any other message type | read `obj.message` (a plain dict; `call()` does nothing) |
 
 Minimal loop (callbacks only):
 
@@ -236,6 +236,8 @@ Minimal loop (callbacks only):
 async for obj in cell.inputs():
     await obj.call()
 ```
+
+A resize can land at any moment, so only the `Callback` row does real work: `Resize` and `RawMessage` have no-op `call()` methods, which is what keeps a callbacks-only loop alive across a window resize. `ResolveRequest` deliberately has no `call()` — an unanswered resource request means the interface is missing an asset handler, which should fail loudly rather than leave the browser waiting.
 
 Loop that also handles resource requests:
 
@@ -663,6 +665,6 @@ asyncio.run(main())
 | Declare indicator target | `indicator-selector="..."` attribute on the element |
 | Auto-focus on load | `id="prime-focus"` on the first focusable element |
 | Configure cell behavior | `cell.configure(sticky=True)` / `cell.configure(background=True)` |
-| Process callbacks | `async for obj in cell.inputs(): await obj.call()` (yields `Callback`, `ResolveRequest`, `Resize`, `RawMessage`) |
+| Process callbacks | `async for obj in cell.inputs(): await obj.call()` (yields `Callback`, `ResolveRequest`, `Resize`, `RawMessage`; only `Callback` runs anything, `Resize`/`RawMessage` are no-ops) |
 | Register structured data handlers | `cell.register_data_handlers({MyDataclass: "(msg) => { ... }"})` |
 | Send structured data to browser | `cell.data(my_dataclass_instance)` |

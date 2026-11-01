@@ -64,10 +64,20 @@ class Resize:
     height: float = None
     cell: "Cell" = None
 
+    async def call(self):
+        # Nothing runs for a resize, so a loop that only drives callbacks
+        # (`await obj.call()`) survives one instead of raising AttributeError.
+        # Check for a Resize when the interface cares about the new size.
+        return None
+
 
 @dataclass
 class RawMessage:
     message: JSON
+
+    async def call(self):
+        # Unrecognized traffic is skipped, exactly like a resize.
+        return None
 
 
 @dataclass
