@@ -27,12 +27,17 @@ class Interpreter:
     async def __call__(self, prompt, message):
         msg_type = message.get("type")
         if msg_type == "command":
-            # The terminal asks the driver to run a command: submit (the user
-            # pressed Enter), parse (for a highlight answer), ...
+            # An action fired (a key binding's, or a clicked part's): a
+            # command line ("ls", or {"command": "ls"}) or a built-in
+            # ({"builtin": "submit"}: the user pressed Enter, ...). Built-ins
+            # with a handler of their own go to it; the rest to handle_command,
+            # which can read message["action"].
+            action = message.get("action")
+            builtin = action.get("builtin") if isinstance(action, dict) else None
             handler_name = {
                 "submit": "handle_prompt_submit",
                 "parse": "handle_parse",
-            }.get(message.get("command"), "handle_command")
+            }.get(builtin, "handle_command")
         elif msg_type == "parse":
             handler_name = "handle_parse"
         elif msg_type in ("signal", "close"):

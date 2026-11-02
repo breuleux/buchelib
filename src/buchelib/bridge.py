@@ -37,6 +37,21 @@ def _plain_text(html):
     return re.sub(r"<[^>]+>", "", html or "")
 
 
+def _structured(text, style=None):
+    """Structured text: `text` (HTML tags stripped) as a single part, in
+    `style` (an accent; None: unstyled), or `text` itself if it is already a
+    list of parts ({"text": ..., "style": ...})."""
+    if isinstance(text, list):
+        return {"parts": text}
+    text = _plain_text(text)
+    if not text:
+        return {"parts": []}
+    part = {"text": text}
+    if style is not None:
+        part["style"] = style
+    return {"parts": [part]}
+
+
 @dataclass(kw_only=True)
 class ResolveRequest:
     method: str
@@ -220,7 +235,7 @@ class Bridge:
             Cell(bridge=self, interpreter_class=BucheInterpreter, srx=self.srx, id="main")
         )
 
-    def cell(self, echo=None, behavior="background", id=None, under=None, name=None, ranges=None):
+    def cell(self, echo=None, behavior="background", id=None, under=None, name=None, style=None):
         from .htmlgen import BucheInterpreter
 
         name = name or uuid4().hex
@@ -244,9 +259,8 @@ class Bridge:
             "sticky": behavior == "sticky",
         }
         if echo is not None:
-            config["submission"] = {
-                "content": {"text": _plain_text(echo), "ranges": ranges or []}
-            }
+            # `echo`: a string (in `style`, if given) or a list of parts.
+            config["submission"] = {"content": _structured(echo, style)}
         if id is not None:
             # Repeating the command's id lets the terminal focus the cell.
             config["id"] = id
@@ -264,8 +278,7 @@ class Bridge:
                 "to": TERM,
                 "label": label,
                 "color": f"oklch(0.65 {chroma} {hue})",
-                # StyledText requires both `text` and `ranges`.
-                "input": {"context": {"text": _plain_text(prompt_html) or "}}", "ranges": []}},
+                "input": {"context": _structured(_plain_text(prompt_html) or "}}")},
             }
         )
         self.prompts[label] = prompt
