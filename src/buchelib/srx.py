@@ -65,8 +65,7 @@ class BucheSerieux(Medley):
         for fn, tag in ctx.cell.function_registry.items():
             if tag == obj:
                 return fn
-        else:
-            raise Exception(f"No function with tag: {obj}")
+        raise Exception(f"No function with tag: {obj}")
 
     def deserialize(self, t: type[ResponseId], obj: str, ctx: CellContext):
         return ResponseId(obj, ctx.cell)

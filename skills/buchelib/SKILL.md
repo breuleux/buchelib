@@ -63,13 +63,13 @@ Use `body.print()` to append HTML. It accepts a **t-string** (Python template st
 **Self-closing tags** must be written with an explicit slash: `<input />`, `<br />`, `<img />`. Writing `<input>` without a closing slash causes hypetext to misparse the template, treating subsequent content as children of the tag.
 
 ```python
-body.print(t'<h1>Hello, {username}!</h1>')
+body.print(t"<h1>Hello, {username}!</h1>")
 ```
 
 Use `body.set()` to replace the contents of the selection rather than append:
 
 ```python
-body["#status"].set(t'<span>Done</span>')
+body["#status"].set(t"<span>Done</span>")
 ```
 
 To inject a Python string that is **already valid HTML** (e.g. output from a markdown renderer), use the `:raw` format spec to bypass escaping:
@@ -113,10 +113,12 @@ This is the easiest approach for scripts written specifically for buche. The dow
 Send all assets upfront before the browser requests them. The browser uses normal `/`-prefixed paths, and buche serves them from its cache — even after the Python process has terminated:
 
 ```python
-cell.map_files({
-    "/styles.css": Path("styles.css"),
-    "/app.js":     Path("app.js"),
-})
+cell.map_files(
+    {
+        "/styles.css": Path("styles.css"),
+        "/app.js": Path("app.js"),
+    }
+)
 
 body.print(t'<link rel="stylesheet" href="/styles.css">')
 body.exec(Path("app.js"))
@@ -143,6 +145,30 @@ async for obj in cell.inputs():
 
 This keeps normal web paths in the HTML/JS — the same markup works in a regular web server without modification. The tradeoff is that the Python process must stay alive to answer requests.
 
+### 4. Declare a library with `cell.library()` (best for big or shared assets)
+
+Declare the files once; the shell (cq) supplies them and buche keeps them in a store shared by every session, so large assets (a CodeMirror bundle, say) cross the control channel once, ever, and keep working after the process exits. Files in a library can import each other with relative URLs:
+
+```python
+lib = cell.library({
+    "app.js": here / "app.js",          # imports "./vendor/codemirror.js"
+    "vendor/codemirror.js": here / "codemirror.js",
+    "app.css": here / "app.css",
+})
+
+body.print(t'<link rel="stylesheet" href={lib.url("app.css")}>')
+body.exec(t"window.__appMain = {lib.url('app.js')};")
+body.print(t"""<script type="module">
+    const {{ setup }} = await import(buche.lib(window.__appMain));
+    setup();
+</script>""")
+```
+
+- URLs are `lib://<id>/<path>`; `lib.url(path)` (or `lib / path`) builds them. The id is derived from the contents, so editing a file gives a new id: declare again after changes.
+- Files given as paths require running under cq (it sets `BUCHE_LIB_SALT`, used to prove this process can read the files); `cell.library()` raises `RuntimeError` otherwise.
+- A value can also be `bytes`: the content is sent inline with the declaration (no proof, no shell needed), e.g. `cell.library({"data.json": json.dumps(data).encode()})`. Mix freely with paths.
+- In `src`/`href` attributes of printed HTML, `lib://` URLs work as is. Inside scripts (imports, `fetch`), wrap them in `buche.lib(url)`: the browser view serves them over HTTP. `fetch` in a module resolves against the page, not the module: use `new URL("./data.json", import.meta.url)`.
+
 ---
 
 ## Running JavaScript
@@ -152,7 +178,7 @@ This keeps normal web paths in the HTML/JS — the same markup works in a regula
 **T-string** — use when you need to interpolate Python values (objects, functions) into JS. All `{expr}` interpolations are serialized to JS literals:
 
 ```python
-body.exec(t'console.log({point})')
+body.exec(t"console.log({point})")
 ```
 
 When `exec` is called on a sub-selection, `this` inside the script refers to the matched element:
@@ -181,8 +207,8 @@ body.exec(Path("mylib.js"))
 Each `exec()` call runs in its own scope. Variables declared with `const` or `let` in one call are **not visible** in subsequent calls. To share a value across multiple `exec()` blocks, assign it to `window`:
 
 ```python
-body.exec(t'window.myFn = {my_python_fn};')
-body.exec(t'window.DATA = {data};')
+body.exec(t"window.myFn = {my_python_fn};")
+body.exec(t"window.DATA = {data};")
 
 body.exec(f"""
     // myFn and DATA are accessible here
@@ -204,8 +230,9 @@ buchelib automatically injects its client-side runtime, which provides the `embe
 ```python
 from serieux import JSON
 
+
 async def square(x: JSON):
-    await asyncio.sleep(0.5)   # non-blocking
+    await asyncio.sleep(0.5)  # non-blocking
     return x * x
 ```
 
@@ -218,7 +245,7 @@ body.print(t'<button onclick="event.indicate({square:js}, 42)">Square 42</button
 or call it directly in JS:
 
 ```python
-body.exec(t'const result = await {square:js}(7)')
+body.exec(t"const result = await {square:js}(7)")
 ```
 
 **Driving the event loop** — the script must process incoming messages. `cell.inputs()` is an async generator that yields one of four types:
@@ -283,7 +310,7 @@ Style the indicator class in your CSS:
 Use `cell.configure()` to send a `configure` message (with `kind: "frame"`) to the terminal. Call it any time after the cell is created — typically right after initial rendering.
 
 ```python
-cell.configure(sticky=True)   # keep focus on the cell when the process ends
+cell.configure(sticky=True)  # keep focus on the cell when the process ends
 cell.configure(background=True)  # defocus the cell and return focus to the prompt
 ```
 
@@ -431,9 +458,11 @@ Use `bridge()` instead of `main_cell()`, then register a prompt with a handler:
 from buchelib import bridge as bridge_
 from buchelib.interpreter import Interpreter
 
+
 class MyInterpreter(Interpreter):
     async def eval(self, cell, command):
         cell.body().print(t"You typed: <b>{command}</b>")
+
 
 async def main():
     bridge = bridge_()
@@ -441,6 +470,7 @@ async def main():
 
     async for obj in bridge:
         await obj.dispatch()
+
 
 asyncio.run(main())
 ```
@@ -476,7 +506,7 @@ Each call to `eval` receives a freshly created `Cell`. Use it exactly like the c
 ```python
 async def eval(self, cell, command):
     body = cell.body()
-    body.print(t'<pre>{command}</pre>')
+    body.print(t"<pre>{command}</pre>")
     # Do NOT call cell.close() — the base class does it automatically.
 ```
 
@@ -522,9 +552,11 @@ from buchelib import main_cell
 cell = main_cell()
 body = cell.body()
 
+
 async def square(x: JSON):
     await asyncio.sleep(0.5)
     return x * x
+
 
 async def main():
     body.print(t'<link rel="stylesheet" href={Path("styles.css")}>')
@@ -543,7 +575,8 @@ async def main():
 
     async for obj in cell.inputs():
         result = await obj.call()
-        body["#result"].set(t'<b>{result}</b>')
+        body["#result"].set(t"<b>{result}</b>")
+
 
 asyncio.run(main())
 ```
@@ -561,10 +594,12 @@ Define each data type as a plain Python dataclass:
 ```python
 from dataclasses import dataclass
 
+
 @dataclass
 class Point:
     x: float
     y: float
+
 
 @dataclass
 class Metric:
@@ -578,10 +613,12 @@ class Metric:
 Call `cell.register_data_handlers()` with a dict that maps each dataclass type to a JavaScript handler string. The handler receives the deserialized object as its argument:
 
 ```python
-cell.register_data_handlers({
-    Point: "(msg) => { chart.addPoint(msg.x, msg.y); }",
-    Metric: "(msg) => { updateGauge(msg.name, msg.value); }",
-})
+cell.register_data_handlers(
+    {
+        Point: "(msg) => { chart.addPoint(msg.x, msg.y); }",
+        Metric: "(msg) => { updateGauge(msg.name, msg.value); }",
+    }
+)
 ```
 
 Call this before sending any data. Handlers are registered once per type per cell.
@@ -610,17 +647,20 @@ import math
 from dataclasses import dataclass
 from buchelib import main_cell
 
+
 @dataclass
 class Point:
     x: float
     y: float
 
+
 async def main():
     cell = main_cell()
     body = cell.body()
 
-    cell.register_data_handlers({
-        Point: """(msg) => {
+    cell.register_data_handlers(
+        {
+            Point: """(msg) => {
             const svg = document.querySelector('svg');
             const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
             circle.setAttribute('cx', msg.x * 50 + 150);
@@ -628,13 +668,15 @@ async def main():
             circle.setAttribute('r', 4);
             svg.appendChild(circle);
         }""",
-    })
+        }
+    )
 
     body.print(t'<svg width="300" height="300" style="border:1px solid #ccc"></svg>')
 
     for i in range(50):
         await asyncio.sleep(0.05)
         cell.data(Point(x=math.cos(i * 0.3), y=math.sin(i * 0.3)))
+
 
 asyncio.run(main())
 ```
@@ -665,6 +707,7 @@ asyncio.run(main())
 | Declare indicator target | `indicator-selector="..."` attribute on the element |
 | Auto-focus on load | `id="prime-focus"` on the first focusable element |
 | Configure cell behavior | `cell.configure(sticky=True)` / `cell.configure(background=True)` |
+| Let a cell grow uncapped in the stream (e.g. a chat transcript) | `bridge.cell(grow=True)` / `cell.configure(grow=True)` |
 | Process callbacks | `async for obj in cell.inputs(): await obj.call()` (yields `Callback`, `ResolveRequest`, `Resize`, `RawMessage`; only `Callback` runs anything, `Resize`/`RawMessage` are no-ops) |
 | Register structured data handlers | `cell.register_data_handlers({MyDataclass: "(msg) => { ... }"})` |
 | Send structured data to browser | `cell.data(my_dataclass_instance)` |

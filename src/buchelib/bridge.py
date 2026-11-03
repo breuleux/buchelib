@@ -17,6 +17,7 @@ from serieux import JSON, Context, Serieux, serialize, serieux
 from serieux.features.tagset import TagDict
 
 from .files import expand_paths, export_file
+from .library import Library, library_declaration
 
 here = Path(__file__).parent
 
@@ -58,7 +59,7 @@ class ResolveRequest:
     path: str
     params: dict[str, str] = field(default_factory=dict)
     request_id: str
-    cell: "Cell" = None
+    cell: Cell = None
 
     def resolve_to(self, p: Path, mimetype: str = None):
         payload = {
@@ -77,7 +78,7 @@ class ResolveRequest:
 class Resize:
     width: float = None
     height: float = None
-    cell: "Cell" = None
+    cell: Cell = None
 
     async def call(self):
         # Nothing runs for a resize, so a loop that only drives callbacks
@@ -185,6 +186,15 @@ class Bridge:
             for cell in self.cells.values():
                 cell.command(type="resolve", path=url, status=200, **packed)
 
+    def library(self, files) -> Library:
+        """Declare a library of `files` (a mapping of paths in the library to
+        files, or a list of files), served to every GUI at lib://<id>/<path>
+        by the shell (see buchelib.library). Returns the Library (its URLs:
+        `lib.url("app.js")`)."""
+        lib, message = library_declaration(files)
+        self.send({**message, "from": [PROC], "to": TERM})
+        return lib
+
     def url(self, p):
         sp = str(Path(p).resolve())
         if sp not in self.catalogue:
@@ -235,7 +245,9 @@ class Bridge:
             Cell(bridge=self, interpreter_class=BucheInterpreter, srx=self.srx, id="main")
         )
 
-    def cell(self, echo=None, behavior="background", id=None, under=None, name=None, style=None):
+    def cell(
+        self, echo=None, behavior="background", id=None, under=None, name=None, style=None, grow=None
+    ):
         from .htmlgen import BucheInterpreter
 
         name = name or uuid4().hex
@@ -264,6 +276,10 @@ class Bridge:
         if id is not None:
             # Repeating the command's id lets the terminal focus the cell.
             config["id"] = id
+        if grow is not None:
+            # No height cap in a scroll stream: the cell takes the height its
+            # content needs (e.g. a chat transcript), and the stream scrolls.
+            config["grow"] = grow
         return self._setup_cell(cell, config)
 
     def prompt(self, label, handler=None, language=None, prompt_html=None, hue=200, chroma=0.5):
@@ -398,6 +414,10 @@ class Cell:
 
     def avail(self, *files):
         return self.bridge.avail(*files)
+
+    def library(self, files) -> Library:
+        """Declare a library (see Bridge.library); usable from any cell."""
+        return self.bridge.library(files)
 
     def command(self, **args):
         # The protocol schemas are strict: optional fields must be absent,

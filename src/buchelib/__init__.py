@@ -1,6 +1,7 @@
 import os
 
 from .bridge import Bridge, Cell, RawMessage, Resize, ResolveRequest
+from .library import Library
 from .srx import Callback
 
 __bridge = None
@@ -37,12 +38,13 @@ def is_available():
 
 __all__ = [
     "Bridge",
+    "Callback",
     "Cell",
-    "ResolveRequest",
+    "Library",
     "RawMessage",
     "Resize",
-    "Callback",
+    "ResolveRequest",
     "bridge",
-    "main_cell",
     "is_available",
+    "main_cell",
 ]

@@ -1,7 +1,8 @@
 import base64
+from collections.abc import Iterable
 from glob import glob
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Literal
 
 from ovld import ovld, recurse
 
@@ -52,7 +53,7 @@ def export_file(suffix: Literal[".js"], file: Path):
 
 
 @ovld
-def export_file(suffix: Literal[".png"] | Literal[".jpeg"], file: Path):
+def export_file(suffix: Literal[".png", ".jpeg"], file: Path):
     content = open(file, "rb").read()
     return {
         "mimetype": f"image/{suffix.lstrip('.')}",
